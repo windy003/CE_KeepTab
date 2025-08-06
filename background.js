@@ -173,10 +173,10 @@ function urlMatches(currentUrl, lockedUrl) {
     const current = new URL(currentUrl);
     const locked = new URL(lockedUrl.startsWith('http') ? lockedUrl : 'http://' + lockedUrl);
     
-    // 检查域名匹配
-    return current.hostname === locked.hostname;
+    // 精确匹配整个URL（包括协议、域名、端口、路径）
+    return current.href === locked.href;
   } catch (e) {
-    // 如果URL解析失败，进行简单的字符串匹配
-    return currentUrl.includes(lockedUrl) || lockedUrl.includes(currentUrl);
+    // 如果URL解析失败，进行精确的字符串匹配
+    return currentUrl === lockedUrl;
   }
 }
