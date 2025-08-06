@@ -1,5 +1,7 @@
 // 存储被锁定的标签ID
 let lockedTabs = new Set();
+// 存储标签ID到URL的映射
+let tabUrlMap = new Map();
 
 // 监听扩展安装
 chrome.runtime.onInstalled.addListener(function() {
@@ -17,6 +19,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     updateLockedTabs();
   } else if (request.action === 'unlock') {
     lockedTabs.clear();
+    tabUrlMap.clear();
   }
 });
 
@@ -38,25 +41,24 @@ chrome.tabs.onCreated.addListener(function(tab) {
 chrome.tabs.onRemoved.addListener(function(tabId, removeInfo) {
   // 如果标签被锁定，尝试重新打开
   if (lockedTabs.has(tabId)) {
-    chrome.storage.local.get(['lockedUrls', 'isLocked'], function(result) {
-      if (result.isLocked && result.lockedUrls && result.lockedUrls.length > 0) {
-        // 获取被关闭标签的URL
-        chrome.tabs.get(tabId, function(tab) {
-          if (chrome.runtime.lastError) {
-            // 标签已经被关闭，尝试重新打开匹配的URL
-            result.lockedUrls.forEach(function(lockedUrl) {
-              // 简单检查URL匹配
-              setTimeout(function() {
-                chrome.tabs.create({ url: lockedUrl }, function(newTab) {
-                  lockedTabs.add(newTab.id);
-                  console.log('Reopened locked tab:', lockedUrl);
-                });
-              }, 100);
+    const closedTabUrl = tabUrlMap.get(tabId);
+    if (closedTabUrl) {
+      chrome.storage.local.get(['isLocked'], function(result) {
+        if (result.isLocked) {
+          // 只重新打开被关闭的特定标签
+          setTimeout(function() {
+            chrome.tabs.create({ url: closedTabUrl }, function(newTab) {
+              lockedTabs.add(newTab.id);
+              tabUrlMap.set(newTab.id, closedTabUrl);
+              console.log('Reopened locked tab:', closedTabUrl);
             });
-          }
-        });
-      }
-    });
+          }, 100);
+        }
+      });
+    }
+    // 清理映射
+    lockedTabs.delete(tabId);
+    tabUrlMap.delete(tabId);
   }
 });
 
@@ -95,6 +97,7 @@ function checkAndLockTab(tabId, url) {
       result.lockedUrls.forEach(function(lockedUrl) {
         if (urlMatches(url, lockedUrl)) {
           lockedTabs.add(tabId);
+          tabUrlMap.set(tabId, url);
           console.log('Tab locked:', url);
           
           // 注入防关闭脚本
@@ -117,6 +120,7 @@ function updateLockedTabs() {
           result.lockedUrls.forEach(function(lockedUrl) {
             if (urlMatches(tab.url, lockedUrl)) {
               lockedTabs.add(tab.id);
+              tabUrlMap.set(tab.id, tab.url);
               
               // 注入防关闭脚本
               chrome.scripting.executeScript({
