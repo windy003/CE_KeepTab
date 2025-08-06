@@ -2,6 +2,8 @@
 let lockedTabs = new Set();
 // 存储标签ID到URL的映射
 let tabUrlMap = new Map();
+// 存储标签位置信息（ID -> {url, windowId, index}）
+let tabPositionMap = new Map();
 
 // 监听扩展安装
 chrome.runtime.onInstalled.addListener(function() {
@@ -20,6 +22,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   } else if (request.action === 'unlock') {
     lockedTabs.clear();
     tabUrlMap.clear();
+    tabPositionMap.clear();
   }
 });
 
@@ -41,16 +44,27 @@ chrome.tabs.onCreated.addListener(function(tab) {
 chrome.tabs.onRemoved.addListener(function(tabId, removeInfo) {
   // 如果标签被锁定，尝试重新打开
   if (lockedTabs.has(tabId)) {
-    const closedTabUrl = tabUrlMap.get(tabId);
-    if (closedTabUrl) {
+    const tabPosition = tabPositionMap.get(tabId);
+    if (tabPosition) {
       chrome.storage.local.get(['isLocked'], function(result) {
         if (result.isLocked) {
-          // 只重新打开被关闭的特定标签
+          // 在原来的位置重新打开标签
           setTimeout(function() {
-            chrome.tabs.create({ url: closedTabUrl }, function(newTab) {
-              lockedTabs.add(newTab.id);
-              tabUrlMap.set(newTab.id, closedTabUrl);
-              console.log('Reopened locked tab:', closedTabUrl);
+            chrome.tabs.create({ 
+              url: tabPosition.url,
+              windowId: tabPosition.windowId,
+              index: tabPosition.index
+            }, function(newTab) {
+              if (newTab) {
+                lockedTabs.add(newTab.id);
+                tabUrlMap.set(newTab.id, tabPosition.url);
+                tabPositionMap.set(newTab.id, {
+                  url: tabPosition.url,
+                  windowId: newTab.windowId,
+                  index: newTab.index
+                });
+                console.log('Reopened locked tab at position:', tabPosition.index, tabPosition.url);
+              }
             });
           }, 100);
         }
@@ -59,6 +73,7 @@ chrome.tabs.onRemoved.addListener(function(tabId, removeInfo) {
     // 清理映射
     lockedTabs.delete(tabId);
     tabUrlMap.delete(tabId);
+    tabPositionMap.delete(tabId);
   }
 });
 
@@ -96,15 +111,25 @@ function checkAndLockTab(tabId, url) {
     if (result.isLocked && result.lockedUrls && result.lockedUrls.length > 0) {
       result.lockedUrls.forEach(function(lockedUrl) {
         if (urlMatches(url, lockedUrl)) {
-          lockedTabs.add(tabId);
-          tabUrlMap.set(tabId, url);
-          console.log('Tab locked:', url);
-          
-          // 注入防关闭脚本
-          chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            func: preventClose
-          }).catch(err => console.log('Script injection failed:', err));
+          // 获取标签完整信息以记录位置
+          chrome.tabs.get(tabId, function(tab) {
+            if (tab) {
+              lockedTabs.add(tabId);
+              tabUrlMap.set(tabId, url);
+              tabPositionMap.set(tabId, {
+                url: url,
+                windowId: tab.windowId,
+                index: tab.index
+              });
+              console.log('Tab locked:', url, 'at position:', tab.index);
+              
+              // 注入防关闭脚本
+              chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: preventClose
+              }).catch(err => console.log('Script injection failed:', err));
+            }
+          });
         }
       });
     }
@@ -121,6 +146,11 @@ function updateLockedTabs() {
             if (urlMatches(tab.url, lockedUrl)) {
               lockedTabs.add(tab.id);
               tabUrlMap.set(tab.id, tab.url);
+              tabPositionMap.set(tab.id, {
+                url: tab.url,
+                windowId: tab.windowId,
+                index: tab.index
+              });
               
               // 注入防关闭脚本
               chrome.scripting.executeScript({
