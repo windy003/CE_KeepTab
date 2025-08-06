@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Locker",
+  "version": "1.0",
+  "description": "锁定指定URL的标签页，防止意外关闭",
+  "permissions": [
+    "tabs",
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tab Locker"
+  }
+}

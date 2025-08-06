@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Icons</title>
+</head>
+<body>
+    <canvas id="canvas16" width="16" height="16" style="border:1px solid #000; margin: 5px;"></canvas>
+    <canvas id="canvas48" width="48" height="48" style="border:1px solid #000; margin: 5px;"></canvas>
+    <canvas id="canvas128" width="128" height="128" style="border:1px solid #000; margin: 5px;"></canvas>
+    
+    <div>
+        <button onclick="downloadIcon('canvas16', 'icon16.png')">Download 16x16</button>
+        <button onclick="downloadIcon('canvas48', 'icon48.png')">Download 48x48</button>
+        <button onclick="downloadIcon('canvas128', 'icon128.png')">Download 128x128</button>
+    </div>
+
+    <script>
+        function drawIcon(canvas, size) {
+            const ctx = canvas.getContext('2d');
+            
+            // 背景
+            ctx.fillStyle = '#4CAF50';
+            ctx.fillRect(0, 0, size, size);
+            
+            // 锁的主体
+            const lockSize = size * 0.6;
+            const lockX = (size - lockSize) / 2;
+            const lockY = size * 0.4;
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(lockX, lockY, lockSize, lockSize * 0.6);
+            
+            // 锁的环
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = size * 0.08;
+            ctx.beginPath();
+            ctx.arc(size / 2, lockY, lockSize * 0.25, Math.PI, 0);
+            ctx.stroke();
+            
+            // 锁孔
+            ctx.fillStyle = '#4CAF50';
+            const keyholeRadius = size * 0.06;
+            ctx.beginPath();
+            ctx.arc(size / 2, lockY + lockSize * 0.2, keyholeRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillRect(size / 2 - keyholeRadius / 2, lockY + lockSize * 0.2, keyholeRadius, keyholeRadius * 1.5);
+        }
+        
+        function downloadIcon(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        // 绘制所有图标
+        drawIcon(document.getElementById('canvas16'), 16);
+        drawIcon(document.getElementById('canvas48'), 48);
+        drawIcon(document.getElementById('canvas128'), 128);
+    </script>
+</body>
+</html>
