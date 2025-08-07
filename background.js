@@ -77,19 +77,40 @@ chrome.tabs.onRemoved.addListener(function(tabId, removeInfo) {
   }
 });
 
-// 更高级的方法：使用beforeunload监听
+// 监听标签页更新，确保脚本持续有效
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
-  if (changeInfo.status === 'complete' && lockedTabs.has(tabId)) {
-    // 注入脚本来阻止页面关闭
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      func: preventClose
-    });
+  if (lockedTabs.has(tabId)) {
+    // 页面开始加载时就注入脚本
+    if (changeInfo.status === 'loading' || changeInfo.status === 'complete') {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: preventClose
+      }).catch(err => console.log('Script injection failed:', err));
+    }
   }
 });
 
+// 定期检查并重新注入脚本（防止脚本失效）
+setInterval(function() {
+  lockedTabs.forEach(function(tabId) {
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: preventClose
+    }).catch(err => {
+      // 如果注入失败，可能标签已关闭，从集合中移除
+      console.log('Script re-injection failed for tab:', tabId, err);
+    });
+  });
+}, 5000); // 每5秒检查一次
+
 // 注入到页面的函数，用于阻止关闭
 function preventClose() {
+  // 防止重复注入
+  if (window.tabLockerInjected) {
+    return;
+  }
+  window.tabLockerInjected = true;
+  
   window.addEventListener('beforeunload', function(e) {
     e.preventDefault();
     e.returnValue = '';
@@ -103,6 +124,20 @@ function preventClose() {
       alert('此标签页已被锁定，无法关闭。');
     }
   });
+  
+  // 定期检查并重新绑定监听器（防止被页面脚本覆盖）
+  setInterval(function() {
+    if (!window.tabLockerKeyListener) {
+      window.tabLockerKeyListener = function(e) {
+        if (e.ctrlKey && e.key === 'w') {
+          e.preventDefault();
+          e.stopPropagation();
+          alert('此标签页已被锁定，无法关闭。');
+        }
+      };
+      document.addEventListener('keydown', window.tabLockerKeyListener, true);
+    }
+  }, 1000);
 }
 
 // 检查URL是否匹配锁定列表
