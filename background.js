@@ -5,15 +5,59 @@ let tabUrlMap = new Map();
 // 存储标签位置信息（ID -> {url, windowId, index}）
 let tabPositionMap = new Map();
 
-// 监听扩展安装
-chrome.runtime.onInstalled.addListener(function() {
-  console.log('Tab Locker extension installed');
-  // 初始化存储
-  chrome.storage.local.set({
-    lockedUrls: [],
-    isLocked: false
+// Service Worker 启动时初始化
+chrome.runtime.onStartup.addListener(initializeExtension);
+chrome.runtime.onInstalled.addListener(initializeExtension);
+
+// 初始化扩展
+function initializeExtension() {
+  console.log('Tab Locker extension initializing');
+  
+  // 确保存储结构存在
+  chrome.storage.local.get(['lockedUrls', 'isLocked'], function(result) {
+    if (!result.lockedUrls) {
+      chrome.storage.local.set({
+        lockedUrls: [],
+        isLocked: false
+      });
+    }
+    
+    // 恢复锁定状态
+    if (result.isLocked && result.lockedUrls && result.lockedUrls.length > 0) {
+      restoreLockedTabs();
+    }
   });
-});
+}
+
+// 恢复锁定的标签页
+function restoreLockedTabs() {
+  chrome.storage.local.get(['lockedUrls', 'isLocked'], function(result) {
+    if (result.isLocked && result.lockedUrls && result.lockedUrls.length > 0) {
+      chrome.tabs.query({}, function(tabs) {
+        tabs.forEach(function(tab) {
+          result.lockedUrls.forEach(function(lockedUrl) {
+            if (urlMatches(tab.url, lockedUrl)) {
+              lockedTabs.add(tab.id);
+              tabUrlMap.set(tab.id, tab.url);
+              tabPositionMap.set(tab.id, {
+                url: tab.url,
+                windowId: tab.windowId,
+                index: tab.index
+              });
+              
+              // 注入防关闭脚本
+              chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: preventClose
+              }).catch(err => console.log('Script injection failed:', err));
+            }
+          });
+        });
+        console.log('Restored locked tabs:', lockedTabs.size);
+      });
+    }
+  });
+}
 
 // 监听来自popup的消息
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -92,16 +136,29 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
 
 // 定期检查并重新注入脚本（防止脚本失效）
 setInterval(function() {
-  lockedTabs.forEach(function(tabId) {
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      func: preventClose
-    }).catch(err => {
-      // 如果注入失败，可能标签已关闭，从集合中移除
-      console.log('Script re-injection failed for tab:', tabId, err);
-    });
+  chrome.storage.local.get(['isLocked'], function(result) {
+    if (result.isLocked) {
+      lockedTabs.forEach(function(tabId) {
+        chrome.tabs.get(tabId).then(tab => {
+          if (tab) {
+            chrome.scripting.executeScript({
+              target: { tabId: tabId },
+              func: preventClose
+            }).catch(err => {
+              console.log('Script re-injection failed for tab:', tabId, err);
+            });
+          }
+        }).catch(err => {
+          // 标签已不存在，从集合中移除
+          console.log('Tab no longer exists, removing from locked set:', tabId);
+          lockedTabs.delete(tabId);
+          tabUrlMap.delete(tabId);
+          tabPositionMap.delete(tabId);
+        });
+      });
+    }
   });
-}, 5000); // 每5秒检查一次
+}, 10000); // 每10秒检查一次，减少频率
 
 // 注入到页面的函数，用于阻止关闭
 function preventClose() {
@@ -173,9 +230,15 @@ function checkAndLockTab(tabId, url) {
 
 // 更新所有锁定的标签
 function updateLockedTabs() {
+  console.log('Updating locked tabs...');
   chrome.storage.local.get(['lockedUrls', 'isLocked'], function(result) {
     if (result.isLocked && result.lockedUrls && result.lockedUrls.length > 0) {
       chrome.tabs.query({}, function(tabs) {
+        // 清空现有的锁定状态
+        lockedTabs.clear();
+        tabUrlMap.clear();
+        tabPositionMap.clear();
+        
         tabs.forEach(function(tab) {
           result.lockedUrls.forEach(function(lockedUrl) {
             if (urlMatches(tab.url, lockedUrl)) {
@@ -187,6 +250,8 @@ function updateLockedTabs() {
                 index: tab.index
               });
               
+              console.log('Locking tab:', tab.url);
+              
               // 注入防关闭脚本
               chrome.scripting.executeScript({
                 target: { tabId: tab.id },
@@ -195,7 +260,13 @@ function updateLockedTabs() {
             }
           });
         });
+        console.log('Updated locked tabs count:', lockedTabs.size);
       });
+    } else {
+      // 如果没有锁定的URL或者锁定已关闭，清空所有锁定状态
+      lockedTabs.clear();
+      tabUrlMap.clear();
+      tabPositionMap.clear();
     }
   });
 }
